@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "SmartMeal – My Little Healthy Pet"
+description = "A lightweight Replit preview host for the existing Python Streamlit SmartMeal app. It displays the Streamlit nutrition tracker and virtual pet without replacing the Python app or its SQLite storage."
+version = "1.0.0"
+id = "artifacts/smartmeal-preview"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24388
+
+[services.development]
+run = "pnpm --filter @workspace/smartmeal-preview run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/smartmeal-preview", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/smartmeal-preview/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24388"
+BASE_PATH = "/"

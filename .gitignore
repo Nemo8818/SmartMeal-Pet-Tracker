@@ -16,6 +16,22 @@ out-tsc
 
 # dependencies
 node_modules
+.pythonlibs/
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# SmartMeal local health data (never commit personal records)
+smartmeal.db
+smartmeal.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+.streamlit/secrets.toml
 
 # IDEs and editors
 /.idea

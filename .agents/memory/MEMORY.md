@@ -1,0 +1,1 @@
+- [SmartMeal project context](smartmeal-project-context.md) — university programming project for a demonstration.
