@@ -37,7 +37,7 @@ from smartmeal_data import (
     save_profile,
     set_decoration_equipped,
 )
-from smartmeal_illustrations import pet_svg, room_svg
+from smartmeal_illustrations import pet_svg, room_svg, svg_data_uri
 
 
 ACTIVITY_LEVELS = {
@@ -355,16 +355,6 @@ def style_app() -> None:
         [data-testid="stProgressBar"] > div > div {
             background: linear-gradient(90deg, #efaec4, #b99cdd, #98d5c2);
         }
-        .room-frame {
-            overflow: hidden;
-            border: 1px solid #efdeeb;
-            border-radius: 24px;
-            background: #fff9f5;
-            box-shadow: 0 12px 30px rgba(76, 56, 90, .08);
-        }
-        .room-frame svg { display: block; width: 100%; height: auto; }
-        .pet-sprite { max-width: 220px; margin: 0 auto; }
-        .pet-sprite svg { width: 100%; height: auto; }
         div[data-testid="stVerticalBlockBorderWrapper"] {
             border-radius: 20px;
             border-color: #f0e5f1;
@@ -542,9 +532,16 @@ def render_pet_card(profile: dict[str, Any], total_xp: int) -> None:
     stage = progress["stage"]
     with st.container(border=True):
         left, right = st.columns([1, 3])
-        left.markdown(
-            f"<div class='pet-sprite'>{pet_svg(profile['egg_type'], stage, instance_id='dashboard-pet')}</div>",
-            unsafe_allow_html=True,
+        left.image(
+            svg_data_uri(
+                pet_svg(
+                    profile["egg_type"],
+                    stage,
+                    instance_id="dashboard-pet",
+                )
+            ),
+            width="stretch",
+            alt=f"Your {profile['egg_type']} pet at the {stage.lower()} stage",
         )
         right.subheader(f"Your pet · {stage}")
         right.write(progress["description"])
@@ -1003,10 +1000,14 @@ def render_pet_page(profile: dict[str, Any]) -> None:
     else:
         st.progress(1.0, text="Fully grown")
 
-    st.markdown(
-        f"<div class='room-frame'>{room_svg(profile['egg_type'], progress['stage'], equipped)}</div>",
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        st.image(
+            svg_data_uri(
+                room_svg(profile["egg_type"], progress["stage"], equipped)
+            ),
+            width="stretch",
+            alt="Cozy pastel bedroom with your pet, bed, rug, window, plants, and toys",
+        )
 
     st.subheader("Spend a little time together")
     st.caption(
@@ -1130,17 +1131,21 @@ def main() -> None:
     with st.sidebar:
         st.markdown("## SmartMeal")
         st.caption("My Little Healthy Pet")
+        pages = [
+            "Dashboard",
+            "Food diary",
+            "Water tracker",
+            "Activity tracker",
+            "Weight tracker",
+            "My pet",
+            "Profile & settings",
+        ]
+        requested_page = st.query_params.get("page")
+        page_index = pages.index(requested_page) if requested_page in pages else 0
         page = st.radio(
             "Your space",
-            [
-                "Dashboard",
-                "Food diary",
-                "Water tracker",
-                "Activity tracker",
-                "Weight tracker",
-                "My pet",
-                "Profile & settings",
-            ],
+            pages,
+            index=page_index,
             label_visibility="collapsed",
         )
         st.divider()

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 from html import escape
 import re
+from xml.etree import ElementTree
 
 
 PET_COLORS = {
@@ -13,6 +15,24 @@ PET_COLORS = {
     "bear": ("#c9946e", "#936347", "#f4dec8", "#a95e69"),
     "penguin": ("#47596f", "#26384d", "#fffaf1", "#f0a24c"),
 }
+
+
+def svg_data_uri(svg: str) -> str:
+    """Validate a complete SVG and return a browser-ready base64 data URI."""
+    document = svg.strip()
+    try:
+        root = ElementTree.fromstring(document)
+    except ElementTree.ParseError as error:
+        raise ValueError("The illustration is not valid SVG/XML.") from error
+
+    svg_tag = "{http://www.w3.org/2000/svg}svg"
+    if root.tag != svg_tag or not root.get("viewBox"):
+        raise ValueError("SVG illustrations need the SVG namespace and a viewBox.")
+    if any(node.tag == svg_tag and not node.get("viewBox") for node in root.iter()):
+        raise ValueError("Every nested SVG illustration needs a viewBox.")
+
+    encoded = base64.b64encode(document.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
 
 
 def _safe_id(value: str) -> str:
