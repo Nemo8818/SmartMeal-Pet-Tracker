@@ -16,6 +16,13 @@ from typing import Any, Iterator
 
 DEFAULT_DB_PATH = Path(__file__).with_name("smartmeal.db")
 
+COIN_REWARDS = {
+    "meal": (4, 16),
+    "water": (3, 9),
+    "activity": (6, 12),
+    "checkin": (5, 5),
+}
+
 
 def get_db_path() -> Path:
     """Return the database path, with an override for isolated tests."""
@@ -104,7 +111,41 @@ def initialize_database() -> None:
                 description TEXT NOT NULL,
                 UNIQUE (source_type, source_id)
             );
+
+            CREATE TABLE IF NOT EXISTS coin_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_type TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                entry_date TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                description TEXT NOT NULL,
+                UNIQUE (source_type, source_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS pet_status (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                happiness INTEGER NOT NULL DEFAULT 72,
+                energy INTEGER NOT NULL DEFAULT 76,
+                affection INTEGER NOT NULL DEFAULT 60,
+                last_action TEXT NOT NULL DEFAULT 'Ready for a little care',
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS owned_decorations (
+                item_key TEXT PRIMARY KEY,
+                category TEXT NOT NULL,
+                purchased_at TEXT NOT NULL,
+                equipped INTEGER NOT NULL DEFAULT 1 CHECK (equipped IN (0, 1))
+            );
             """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO pet_status (
+                id, happiness, energy, affection, last_action, updated_at
+            ) VALUES (1, 72, 76, 60, 'Ready for a little care', ?)
+            """,
+            (date.today().isoformat(),),
         )
 
 
@@ -205,6 +246,41 @@ def _award_xp(
     return amount
 
 
+def _award_coins(
+    connection: sqlite3.Connection,
+    source_type: str,
+    source_id: str,
+    entry_date: str,
+    description: str,
+) -> int:
+    """Award a modest number of coins for healthy logging, with daily caps."""
+    reward, daily_limit = COIN_REWARDS[source_type]
+    already_recorded = connection.execute(
+        "SELECT 1 FROM coin_events WHERE source_type = ? AND source_id = ?",
+        (source_type, source_id),
+    ).fetchone()
+    if already_recorded:
+        return 0
+
+    earned_today = connection.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM coin_events "
+        "WHERE source_type = ? AND entry_date = ?",
+        (source_type, entry_date),
+    ).fetchone()[0]
+    amount = min(reward, max(0, daily_limit - int(earned_today)))
+    if amount == 0:
+        return 0
+
+    connection.execute(
+        """
+        INSERT INTO coin_events (source_type, source_id, entry_date, amount, description)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (source_type, source_id, entry_date, amount, description),
+    )
+    return amount
+
+
 def add_meal(
     meal_date: str,
     meal_type: str,
@@ -235,7 +311,7 @@ def add_meal(
                 date.today().isoformat(),
             ),
         )
-        return _award_xp(
+        xp_awarded = _award_xp(
             connection,
             "meal",
             str(cursor.lastrowid),
@@ -244,6 +320,10 @@ def add_meal(
             "Logged a meal",
             32,
         )
+        _award_coins(
+            connection, "meal", str(cursor.lastrowid), meal_date, "Logged a meal"
+        )
+        return xp_awarded
 
 
 def add_water(entry_date: str, amount_ml: int) -> int:
@@ -255,7 +335,7 @@ def add_water(entry_date: str, amount_ml: int) -> int:
             "VALUES (?, ?, ?)",
             (entry_date, amount_ml, date.today().isoformat()),
         )
-        return _award_xp(
+        xp_awarded = _award_xp(
             connection,
             "water",
             str(cursor.lastrowid),
@@ -264,6 +344,10 @@ def add_water(entry_date: str, amount_ml: int) -> int:
             "Logged water",
             9,
         )
+        _award_coins(
+            connection, "water", str(cursor.lastrowid), entry_date, "Logged water"
+        )
+        return xp_awarded
 
 
 def add_activity(
@@ -289,7 +373,7 @@ def add_activity(
                 date.today().isoformat(),
             ),
         )
-        return _award_xp(
+        xp_awarded = _award_xp(
             connection,
             "activity",
             str(cursor.lastrowid),
@@ -298,6 +382,14 @@ def add_activity(
             "Logged movement",
             20,
         )
+        _award_coins(
+            connection,
+            "activity",
+            str(cursor.lastrowid),
+            entry_date,
+            "Logged movement",
+        )
+        return xp_awarded
 
 
 def add_weight(entry_date: str, weight_kg: float) -> None:
@@ -330,6 +422,14 @@ def record_daily_checkin(entry_date: str) -> bool:
             "Completed a gentle daily check-in",
             5,
         )
+        if awarded:
+            _award_coins(
+                connection,
+                "checkin",
+                entry_date,
+                entry_date,
+                "Completed a gentle daily check-in",
+            )
     return awarded > 0
 
 
@@ -347,6 +447,141 @@ def get_total_xp() -> int:
         return int(
             connection.execute("SELECT COALESCE(SUM(xp), 0) FROM xp_events").fetchone()[0]
         )
+
+
+def get_total_coins() -> int:
+    with database() as connection:
+        total = connection.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM coin_events"
+        ).fetchone()[0]
+    return max(0, int(total))
+
+
+def get_pet_status() -> dict[str, Any]:
+    with database() as connection:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO pet_status (
+                id, happiness, energy, affection, last_action, updated_at
+            ) VALUES (1, 72, 76, 60, 'Ready for a little care', ?)
+            """,
+            (date.today().isoformat(),),
+        )
+        row = connection.execute(
+            "SELECT * FROM pet_status WHERE id = 1"
+        ).fetchone()
+    return dict(row)
+
+
+def interact_with_pet(action: str) -> dict[str, Any]:
+    """Persist a pet-care action without granting XP or coins."""
+    changes = {
+        "play": (12, -14, 2, "Played together"),
+        "sleep": (5, 24, 1, "Had a cozy nap"),
+        "attention": (6, 0, 14, "Received some gentle attention"),
+    }
+    if action not in changes:
+        raise ValueError("Choose play, sleep, or attention.")
+
+    happiness_change, energy_change, affection_change, label = changes[action]
+    with database() as connection:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO pet_status (
+                id, happiness, energy, affection, last_action, updated_at
+            ) VALUES (1, 72, 76, 60, 'Ready for a little care', ?)
+            """,
+            (date.today().isoformat(),),
+        )
+        current = connection.execute(
+            "SELECT happiness, energy, affection FROM pet_status WHERE id = 1"
+        ).fetchone()
+        happiness = min(100, max(0, int(current["happiness"]) + happiness_change))
+        energy = min(100, max(0, int(current["energy"]) + energy_change))
+        affection = min(100, max(0, int(current["affection"]) + affection_change))
+        connection.execute(
+            """
+            UPDATE pet_status
+            SET happiness = ?, energy = ?, affection = ?, last_action = ?, updated_at = ?
+            WHERE id = 1
+            """,
+            (happiness, energy, affection, label, date.today().isoformat()),
+        )
+    return get_pet_status()
+
+
+def list_owned_decorations() -> list[dict[str, Any]]:
+    with database() as connection:
+        rows = connection.execute(
+            "SELECT item_key, category, purchased_at, equipped "
+            "FROM owned_decorations ORDER BY category, item_key"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def purchase_decoration(
+    item_key: str, category: str, price: int
+) -> dict[str, Any]:
+    """Buy and place a single decoration, atomically charging its coin cost."""
+    if not item_key or not category or price <= 0:
+        raise ValueError("Decoration details and a positive price are required.")
+
+    with database() as connection:
+        existing = connection.execute(
+            "SELECT 1 FROM owned_decorations WHERE item_key = ?", (item_key,)
+        ).fetchone()
+        if existing:
+            return {"ok": False, "reason": "owned"}
+
+        balance = int(
+            connection.execute(
+                "SELECT COALESCE(SUM(amount), 0) FROM coin_events"
+            ).fetchone()[0]
+        )
+        if balance < price:
+            return {"ok": False, "reason": "coins"}
+
+        today = date.today().isoformat()
+        connection.execute(
+            "UPDATE owned_decorations SET equipped = 0 WHERE category = ?",
+            (category,),
+        )
+        connection.execute(
+            """
+            INSERT INTO owned_decorations (item_key, category, purchased_at, equipped)
+            VALUES (?, ?, ?, 1)
+            """,
+            (item_key, category, today),
+        )
+        connection.execute(
+            """
+            INSERT INTO coin_events (source_type, source_id, entry_date, amount, description)
+            VALUES ('spend', ?, ?, ?, ?)
+            """,
+            (item_key, today, -price, f"Bought {item_key} room decor"),
+        )
+    return {"ok": True, "reason": ""}
+
+
+def set_decoration_equipped(item_key: str, equipped: bool) -> bool:
+    """Place or put away owned decor; only one item per category is active."""
+    with database() as connection:
+        row = connection.execute(
+            "SELECT category FROM owned_decorations WHERE item_key = ?",
+            (item_key,),
+        ).fetchone()
+        if row is None:
+            return False
+        if equipped:
+            connection.execute(
+                "UPDATE owned_decorations SET equipped = 0 WHERE category = ?",
+                (row["category"],),
+            )
+        connection.execute(
+            "UPDATE owned_decorations SET equipped = ? WHERE item_key = ?",
+            (int(equipped), item_key),
+        )
+    return True
 
 
 def get_daily_summary(entry_date: str) -> dict[str, float | int]:
@@ -438,6 +673,10 @@ def delete_record(record_type: str, record_id: int) -> None:
     with database() as connection:
         connection.execute(
             "DELETE FROM xp_events WHERE source_type = ? AND source_id = ?",
+            (record_type, str(record_id)),
+        )
+        connection.execute(
+            "DELETE FROM coin_events WHERE source_type = ? AND source_id = ?",
             (record_type, str(record_id)),
         )
         connection.execute(f"DELETE FROM {table_name} WHERE id = ?", (record_id,))

@@ -20,17 +20,24 @@ from smartmeal_data import (
     delete_record,
     get_daily_summary,
     get_profile,
+    get_pet_status,
+    get_total_coins,
     get_total_xp,
     has_daily_checkin,
+    interact_with_pet,
     initialize_database,
+    list_owned_decorations,
     list_activities,
     list_meals,
     list_water_entries,
     list_weights,
     load_demo_profile,
+    purchase_decoration,
     record_daily_checkin,
     save_profile,
+    set_decoration_equipped,
 )
+from smartmeal_illustrations import pet_svg, room_svg
 
 
 ACTIVITY_LEVELS = {
@@ -67,6 +74,85 @@ PET_STAGES = [
     ("Adult", 300, None, "Your pet has grown into a healthy adult."),
 ]
 WATER_GOAL_ML = 2000
+DECORATION_OPTIONS = {
+    "lavender_wallpaper": {
+        "name": "Lavender walls",
+        "category": "wall",
+        "category_name": "Wall",
+        "price": 24,
+        "description": "A soft lavender color for the bedroom.",
+    },
+    "star_wallpaper": {
+        "name": "Starry wall",
+        "category": "wall",
+        "category_name": "Wall",
+        "price": 30,
+        "description": "Tiny golden stars above the bed.",
+    },
+    "moon_rug": {
+        "name": "Moon rug",
+        "category": "rug",
+        "category_name": "Rug",
+        "price": 28,
+        "description": "A lavender rug with a cozy border.",
+    },
+    "flower_rug": {
+        "name": "Flower rug",
+        "category": "rug",
+        "category_name": "Rug",
+        "price": 28,
+        "description": "A sunny flower detail for the floor.",
+    },
+    "sunflower_plant": {
+        "name": "Sunflower plant",
+        "category": "plant",
+        "category_name": "Plant",
+        "price": 20,
+        "description": "A bright flower growing beside the window.",
+    },
+    "sprout_planter": {
+        "name": "Little sprout",
+        "category": "plant",
+        "category_name": "Plant",
+        "price": 18,
+        "description": "A tiny second plant for the room.",
+    },
+    "cloud_lamp": {
+        "name": "Cloud lamp",
+        "category": "lighting",
+        "category_name": "Lighting",
+        "price": 25,
+        "description": "A warm night light on the bedside table.",
+    },
+    "fairy_lights": {
+        "name": "Fairy lights",
+        "category": "lighting",
+        "category_name": "Lighting",
+        "price": 32,
+        "description": "A soft string of lights across the wall.",
+    },
+    "yarn_ball": {
+        "name": "Yarn ball",
+        "category": "toy",
+        "category_name": "Toy",
+        "price": 12,
+        "description": "A colorful toy ready for playtime.",
+    },
+    "plush_bunny": {
+        "name": "Plush bunny",
+        "category": "toy",
+        "category_name": "Toy",
+        "price": 24,
+        "description": "A soft little friend for the bedside.",
+    },
+    "bookshelf": {
+        "name": "Tiny bookshelf",
+        "category": "furniture",
+        "category_name": "Furniture",
+        "price": 38,
+        "description": "A shelf with colorful storybooks.",
+    },
+}
 
 THAI_FOODS: dict[str, dict[str, float]] = {
     "Chicken pad kra pao with rice": {
@@ -269,6 +355,16 @@ def style_app() -> None:
         [data-testid="stProgressBar"] > div > div {
             background: linear-gradient(90deg, #efaec4, #b99cdd, #98d5c2);
         }
+        .room-frame {
+            overflow: hidden;
+            border: 1px solid #efdeeb;
+            border-radius: 24px;
+            background: #fff9f5;
+            box-shadow: 0 12px 30px rgba(76, 56, 90, .08);
+        }
+        .room-frame svg { display: block; width: 100%; height: auto; }
+        .pet-sprite { max-width: 220px; margin: 0 auto; }
+        .pet-sprite svg { width: 100%; height: auto; }
         div[data-testid="stVerticalBlockBorderWrapper"] {
             border-radius: 20px;
             border-color: #f0e5f1;
@@ -422,7 +518,8 @@ def render_onboarding() -> None:
     st.subheader("My Little Healthy Pet")
     st.write(
         "Build gentle, everyday habits with a food diary, simple trackers, "
-        "and a tiny companion that grows when you care for yourself."
+        "and a tiny companion that grows as you care for yourself. Earn room "
+        "coins from everyday logs and use them to decorate."
     )
     st.info(
         "Start by creating a profile, or load clearly labeled sample data "
@@ -443,12 +540,10 @@ def render_onboarding() -> None:
 def render_pet_card(profile: dict[str, Any], total_xp: int) -> None:
     progress = get_pet_progress(total_xp)
     stage = progress["stage"]
-    pet_face = "🥚" if stage == "Egg" else PET_FACES[profile["egg_type"]]
     with st.container(border=True):
         left, right = st.columns([1, 3])
         left.markdown(
-            f"<div style='font-size:5rem;text-align:center;padding-top:.3rem'>"
-            f"{pet_face}</div>",
+            f"<div class='pet-sprite'>{pet_svg(profile['egg_type'], stage, instance_id='dashboard-pet')}</div>",
             unsafe_allow_html=True,
         )
         right.subheader(f"Your pet · {stage}")
@@ -479,13 +574,14 @@ def render_dashboard(profile: dict[str, Any]) -> None:
     st.caption("A gentle snapshot of your day. Every log is information, not a grade.")
 
     calorie_target = estimate["target"]
-    first, second, third = st.columns(3)
+    first, second, third, fourth = st.columns(4)
     first.metric("Food logged", f"{summary['calories']:,.0f} kcal")
     second.metric(
         "Daily target estimate",
         f"{calorie_target:,.0f} kcal" if calorie_target else "Not shown",
     )
     third.metric("Water", f"{summary['water_ml']:,} ml")
+    fourth.metric("Room coins", f"{get_total_coins():,}")
 
     if calorie_target:
         st.progress(
@@ -542,7 +638,10 @@ def render_dashboard(profile: dict[str, Any]) -> None:
                 key="daily_checkin",
             ):
                 record_daily_checkin(today_string)
-                st.success("Check-in saved. Your pet earned 5 XP.")
+                st.success(
+                    f"Check-in saved. Your pet earned 5 XP; your room wallet "
+                    f"now has {get_total_coins()} coins."
+                )
                 st.rerun()
             if checked_in:
                 st.caption("Today's check-in is already saved.")
@@ -633,7 +732,8 @@ def render_meal_diary() -> None:
                 float(fat) * float(servings),
             )
             st.success(
-                f"Meal saved. {f'+{xp} XP for logging it.' if xp else 'Your daily meal-log XP limit is reached.'}"
+                f"Meal saved. {f'+{xp} XP for logging it.' if xp else 'Your daily meal-log XP limit is reached.'} "
+                f"Room wallet: {get_total_coins()} coins."
             )
             st.rerun()
 
@@ -700,7 +800,8 @@ def render_water_tracker() -> None:
     if submitted:
         xp = add_water(entry_date.isoformat(), int(amount_ml))
         st.success(
-            f"Water saved. {f'+{xp} XP for logging it.' if xp else 'Your daily water-log XP limit is reached.'}"
+            f"Water saved. {f'+{xp} XP for logging it.' if xp else 'Your daily water-log XP limit is reached.'} "
+            f"Room wallet: {get_total_coins()} coins."
         )
         st.rerun()
 
@@ -756,7 +857,8 @@ def render_activity_tracker(profile: dict[str, Any]) -> None:
         )
         st.success(
             f"Activity saved. Estimated burn: about {burn} kcal. "
-            f"{f'+{xp} XP for logging it.' if xp else 'Your daily activity-log XP limit is reached.'}"
+            f"{f'+{xp} XP for logging it.' if xp else 'Your daily activity-log XP limit is reached.'} "
+            f"Room wallet: {get_total_coins()} coins."
         )
         st.rerun()
 
@@ -869,9 +971,113 @@ def render_weight_tracker() -> None:
 
 
 def render_pet_page(profile: dict[str, Any]) -> None:
-    st.title("My little healthy pet")
+    st.title("My pet room")
+    st.caption(
+        "A cozy place for your companion. Your room, care status, and purchases "
+        "are saved on this device."
+    )
     total_xp = get_total_xp()
-    render_pet_card(profile, total_xp)
+    progress = get_pet_progress(total_xp)
+    status = get_pet_status()
+    coins = get_total_coins()
+    owned = list_owned_decorations()
+    equipped = {item["item_key"] for item in owned if item["equipped"]}
+
+    if progress["stage"] == "Egg":
+        pet_description = "A mystery egg is resting in its room."
+    else:
+        pet_description = (
+            f"Your {profile['egg_type']} is at the {progress['stage'].lower()} stage."
+        )
+    st.write(pet_description)
+
+    stage_col, xp_col, coin_col = st.columns(3)
+    stage_col.metric("Growth stage", progress["stage"])
+    xp_col.metric("Care XP", f"{total_xp} XP")
+    coin_col.metric("Room coins", f"{coins:,}")
+    if progress["remaining"]:
+        st.progress(
+            progress["progress"],
+            text=f"{progress['remaining']} XP until {progress['next_stage']}",
+        )
+    else:
+        st.progress(1.0, text="Fully grown")
+
+    st.markdown(
+        f"<div class='room-frame'>{room_svg(profile['egg_type'], progress['stage'], equipped)}</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.subheader("Spend a little time together")
+    st.caption(
+        "Play, nap, and attention update your pet's saved mood and energy. "
+        "These taps do not award XP or coins."
+    )
+    play_col, sleep_col, care_col = st.columns(3)
+    if play_col.button("Play together", key="pet_play"):
+        interact_with_pet("play")
+        st.rerun()
+    if sleep_col.button("Let pet sleep", key="pet_sleep"):
+        interact_with_pet("sleep")
+        st.rerun()
+    if care_col.button("Give attention", key="pet_attention"):
+        interact_with_pet("attention")
+        st.rerun()
+    st.caption(f"Last moment: {status['last_action']}")
+    mood_col, energy_col, affection_col = st.columns(3)
+    mood_col.caption("Happiness")
+    mood_col.progress(status["happiness"] / 100)
+    energy_col.caption("Energy")
+    energy_col.progress(status["energy"] / 100)
+    affection_col.caption("Bond")
+    affection_col.progress(status["affection"] / 100)
+
+    st.subheader("Decorate the room")
+    st.caption(
+        "Coins come from logging meals, water, movement, and a daily check-in. "
+        "They are capped; calorie restriction and weight changes never earn rewards."
+    )
+    for start in range(0, len(DECORATION_OPTIONS), 2):
+        columns = st.columns(2)
+        decorations = list(DECORATION_OPTIONS.items())[start : start + 2]
+        for column, (item_key, item) in zip(columns, decorations):
+            is_owned = item_key in {entry["item_key"] for entry in owned}
+            is_equipped = item_key in equipped
+            with column:
+                with st.container(border=True):
+                    st.markdown(f"**{item['name']}** · {item['category_name']}")
+                    st.caption(item["description"])
+                    if is_owned:
+                        button_label = (
+                            "Put away" if is_equipped else "Place in room"
+                        )
+                        if st.button(
+                            button_label,
+                            key=f"toggle_decor_{item_key}",
+                            use_container_width=True,
+                        ):
+                            set_decoration_equipped(item_key, not is_equipped)
+                            st.rerun()
+                        st.caption("Owned")
+                    else:
+                        if st.button(
+                            f"Buy · {item['price']} coins",
+                            key=f"buy_decor_{item_key}",
+                            disabled=coins < item["price"],
+                            use_container_width=True,
+                        ):
+                            result = purchase_decoration(
+                                item_key,
+                                item["category"],
+                                item["price"],
+                            )
+                            if result["ok"]:
+                                st.rerun()
+                            elif result["reason"] == "coins":
+                                st.warning("Log a few everyday habits to earn more coins.")
+                            else:
+                                st.info("You already own this decoration.")
+
     st.subheader("How your pet grows")
     for stage, start, next_threshold, description in PET_STAGES:
         if next_threshold is None:
@@ -882,7 +1088,8 @@ def render_pet_page(profile: dict[str, Any]) -> None:
     st.info(
         "XP comes from logging meals, water, movement, and one gentle daily "
         "check-in. There are daily caps. Skipping food, calorie deficits, "
-        "and weight changes never earn XP."
+        "and weight changes never earn XP. Existing XP and pet growth have "
+        "been kept as they were."
     )
 
 
@@ -910,7 +1117,7 @@ def main() -> None:
         page_title="SmartMeal – My Little Healthy Pet",
         page_icon="🥚",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="auto",
     )
     initialize_database()
     style_app()

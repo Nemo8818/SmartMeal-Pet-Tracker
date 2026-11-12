@@ -2,8 +2,8 @@
 
 SmartMeal is a single-user university programming project that combines a food
 diary and everyday wellness trackers with a small virtual-pet game. Log meals,
-water, and movement to earn capped XP and help a mystery egg grow through five
-stages.
+water, movement, and a daily check-in to earn capped XP and coins. XP helps a
+mystery egg grow through five stages, and coins can be spent on its cozy room.
 
 ## Features
 
@@ -16,10 +16,21 @@ stages.
 - Add and delete meals, water entries, activities, and weight measurements
 - Water and activity progress, plus a Matplotlib weight-history chart
 - Cat, rabbit, dog, bear, or penguin mystery egg that hatches after 30 XP
+- Softly shaded SVG pet illustrations that change across egg, baby, child, teen,
+  and adult stages
+- A cozy illustrated bedroom with a bed, rug, window, plants, toys, and furniture
+- Play, sleep, and attention actions that persist the pet's happiness, energy,
+  and bond without awarding XP or coins
+- A capped coin wallet and decoration shop with purchasable room items
 - XP for logging meals, water, movement, and one daily care check-in, with daily
   caps; no XP for eating less, weight loss, or weight changes
+- Coins for logging meals, water, movement, and a daily check-in, with daily
+  caps; calorie restriction and weight changes never earn rewards
 - SQLite local storage, Pandas summaries, and optional fictional sample data
 - Responsive pastel styling for the Streamlit interface
+
+The room update adds new SQLite tables without clearing the existing profile,
+logs, or XP events.
 
 ## Run locally
 
@@ -87,19 +98,19 @@ The supplied `.gitignore` excludes the SQLite database and local Python files.
 3. Create the repository without adding a README, license, or `.gitignore`
    (these files are already in this project).
 4. In the new repository, choose **Add file → Upload files**.
-5. Upload `app.py`, `smartmeal_data.py`, `requirements.txt`, `README.md`, and
-   `.gitignore`.
+5. Upload `app.py`, `smartmeal_data.py`, `smartmeal_illustrations.py`,
+   `requirements.txt`, `README.md`, and `.gitignore`.
 6. Review the file list to make sure `smartmeal.db` is not included, add a
    commit message, and choose **Commit changes**.
 
 ### Git command line
 
-For a standalone repository, first put the five project files above in a clean
+For a standalone repository, first put the six project files above in a clean
 folder, then run:
 
 ```bash
 git init -b main
-git add app.py smartmeal_data.py requirements.txt README.md .gitignore
+git add app.py smartmeal_data.py smartmeal_illustrations.py requirements.txt README.md .gitignore
 git commit -m "Add SmartMeal healthy pet app"
 git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPOSITORY.git
 git push -u origin main
